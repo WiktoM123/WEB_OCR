@@ -1,0 +1,10 @@
+flask
+matplotlib
+numpy
+opencv-python
+pillow
+scikit-learn
+seaborn
+torch
+torchvision
+wordfreq

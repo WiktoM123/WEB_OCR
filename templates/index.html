@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EMNIST OCR - Paint</title>
+  <style>
+    :root {
+      --bg: #f4f1e8;
+      --panel: #fffdf8;
+      --ink: #1f2a24;
+      --accent: #00684a;
+      --accent-2: #c4f0dd;
+      --danger: #a22424;
+      --border: #d7d2c6;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 15% 20%, #e5f4ec 0%, transparent 28%),
+        radial-gradient(circle at 85% 80%, #f7d8bf 0%, transparent 25%),
+        var(--bg);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .app {
+      width: min(1050px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.4rem, 2vw, 2rem);
+      letter-spacing: 0.03em;
+    }
+
+    .subtitle {
+      margin: 0 0 16px;
+      opacity: 0.8;
+    }
+
+    .status {
+      margin: 12px 0 18px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+
+    .status.ok {
+      border-color: #93d7bc;
+      background: var(--accent-2);
+    }
+
+    .status.bad {
+      border-color: #e7b8b8;
+      background: #f8e7e7;
+      color: var(--danger);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .toolbar label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    .toolbar input[type="range"] {
+      width: 150px;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.08s ease, filter 0.2s ease;
+    }
+
+    .btn:hover {
+      filter: brightness(1.03);
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: #ece8de;
+      color: #2d342f;
+    }
+
+    .btn-toggle {
+      border: 1px solid #d3cec3;
+    }
+
+    .btn-toggle.active {
+      background: #1f2a24;
+      color: #fff;
+      border-color: #1f2a24;
+    }
+
+    .pad-wrap {
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      background: #fff;
+      touch-action: none;
+    }
+
+    canvas {
+      width: 100%;
+      height: 320px;
+      display: block;
+      background: #fff;
+      cursor: crosshair;
+    }
+
+    .result {
+      margin-top: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .result h2 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+
+    .recognized {
+      min-height: 42px;
+      font-size: 1.4rem;
+      letter-spacing: 0.03em;
+      font-weight: 700;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: #f8f6f0;
+      word-break: break-word;
+    }
+
+    .recognized-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .recognized-box {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px;
+      background: #fcfaf5;
+    }
+
+    .recognized-label {
+      font-size: 0.85rem;
+      font-weight: 700;
+      opacity: 0.75;
+      margin-bottom: 6px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .raw {
+      margin-top: 6px;
+      min-height: 24px;
+      font-size: 0.95rem;
+      color: #4a5750;
+      word-break: break-word;
+    }
+
+    .meta {
+      margin-top: 8px;
+      font-size: 0.9rem;
+      opacity: 0.8;
+    }
+
+    @media (max-width: 720px) {
+      .app {
+        padding: 16px;
+      }
+
+      canvas {
+        height: 260px;
+      }
+
+      .recognized-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>EMNIST OCR - Paint</h1>
+    {% if model_ready %}
+      <div class="status ok">Model zaladowany | Plik: {{ checkpoint_path }} | Urzadzenie: {{ device }}</div>
+    {% else %}
+      <div class="status bad">Model nie zostal zaladowany: {{ model_error }}</div>
+    {% endif %}
+
+    {% if dictionaries_ready %}
+      <div class="status ok">Slowniki aktywne: {{ dictionary_summary }} | zrodlo: {{ dictionary_source }}.</div>
+    {% else %}
+      <div class="status bad">Czesc slownikow nieaktywna: {{ dictionary_errors }}</div>
+    {% endif %}
+
+    <div class="toolbar">
+      <button id="penBtn" class="btn btn-secondary btn-toggle active" type="button">Pisak</button>
+      <button id="eraserBtn" class="btn btn-secondary btn-toggle" type="button">Gumka</button>
+      <label>
+        Rozmiar gumki
+        <input id="eraserSize" type="range" min="10" max="70" value="30" />
+      </label>
+      <label style="margin-left: auto;">
+        Zakres rozpoznawania:
+        <select id="ocrMode" class="btn btn-secondary" style="padding: 6px 10px; font-weight: bold;">
+          <option value="auto">Tekst lub zdanie</option>
+          <option value="word">Jedno slowo</option>
+        </select>
+      </label>
+      <label>
+        Slownik:
+        <select id="dictionaryMode" class="btn btn-secondary" style="padding: 6px 10px; font-weight: bold;">
+          <option value="pl_en">PL+EN</option>
+          <option value="pl">PL</option>
+          <option value="en">EN</option>
+        </select>
+      </label>
+      <button id="clearBtn" class="btn btn-secondary" type="button">Wyczysc</button>
+      <button id="recognizeBtn" class="btn btn-primary" type="button">Rozpoznaj z Paint</button>
+    </div>
+
+    <div class="pad-wrap">
+      <canvas id="pad"></canvas>
+    </div>
+
+    <section class="result">
+      <h2>Rozpoznane zdanie</h2>
+      <div class="recognized-grid">
+        <div class="recognized-box">
+          <div class="recognized-label">Odczyt modelu</div>
+          <div id="modelText" class="recognized">...</div>
+        </div>
+        <div class="recognized-box">
+          <div id="dictionaryLabel" class="recognized-label">Slownik {{ dictionary_languages }} (korekta)</div>
+          <div id="dictionaryText" class="recognized">...</div>
+        </div>
+      </div>
+      <div id="rawText" class="raw"></div>
+      <div id="meta" class="meta">Brak predykcji.</div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("pad");
+    const eraserSize = document.getElementById("eraserSize");
+    const penBtn = document.getElementById("penBtn");
+    const eraserBtn = document.getElementById("eraserBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const recognizeBtn = document.getElementById("recognizeBtn");
+    const modelText = document.getElementById("modelText");
+    const dictionaryText = document.getElementById("dictionaryText");
+    const rawText = document.getElementById("rawText");
+    const meta = document.getElementById("meta");
+    const dictionaryModeSelect = document.getElementById("dictionaryMode");
+    const dictionaryLabel = document.getElementById("dictionaryLabel");
+
+    const ctx = canvas.getContext("2d");
+    let drawing = false;
+    let toolMode = "draw";
+    let recognizeInFlight = false;
+    let rerunAfterRequest = false;
+    let autoRecognizeTimer = null;
+    const AUTO_RECOGNIZE_DELAY_MS = 320;
+    const FIXED_BRUSH_SIZE = 8;
+
+    function getSelectedDictionaryLabel() {
+      return dictionaryModeSelect.options[dictionaryModeSelect.selectedIndex].textContent;
+    }
+
+    function refreshDictionaryLabel(label = getSelectedDictionaryLabel()) {
+      dictionaryLabel.textContent = `Slownik ${label} (korekta)`;
+    }
+
+    function setToolMode(mode) {
+      toolMode = mode === "erase" ? "erase" : "draw";
+      penBtn.classList.toggle("active", toolMode === "draw");
+      eraserBtn.classList.toggle("active", toolMode === "erase");
+      canvas.style.cursor = toolMode === "erase" ? "cell" : "crosshair";
+    }
+
+    function fitCanvasToContainer() {
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      const snapshot = canvas.toDataURL("image/png");
+
+      canvas.width = Math.floor(width * ratio);
+      canvas.height = Math.floor(height * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+      fillWhite();
+
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, width, height);
+      };
+      img.src = snapshot;
+    }
+
+    function fillWhite() {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    }
+
+    function clearCanvas() {
+      fillWhite();
+      modelText.textContent = "...";
+      dictionaryText.textContent = "...";
+      rawText.textContent = "";
+      meta.textContent = "Brak predykcji.";
+    }
+
+    function scheduleAutoRecognize() {
+      if (autoRecognizeTimer !== null) {
+        clearTimeout(autoRecognizeTimer);
+      }
+
+      autoRecognizeTimer = setTimeout(() => {
+        autoRecognizeTimer = null;
+        recognizeFromPaint({ auto: true });
+      }, AUTO_RECOGNIZE_DELAY_MS);
+    }
+
+    function applyStrokeStyle() {
+      const erasing = toolMode === "erase";
+      ctx.lineWidth = erasing ? Number(eraserSize.value) : FIXED_BRUSH_SIZE;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = erasing ? "#ffffff" : "#111111";
+    }
+
+    function getPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      };
+    }
+
+    function startDraw(event) {
+      drawing = true;
+      canvas.setPointerCapture(event.pointerId);
+      const p = getPoint(event);
+      applyStrokeStyle();
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      event.preventDefault();
+    }
+
+    function draw(event) {
+      if (!drawing) return;
+      const p = getPoint(event);
+      applyStrokeStyle();
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      scheduleAutoRecognize();
+      event.preventDefault();
+    }
+
+    function stopDraw(event) {
+      if (!drawing) return;
+      drawing = false;
+      ctx.closePath();
+      if (canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+      scheduleAutoRecognize();
+      event.preventDefault();
+    }
+
+    async function recognizeFromPaint(options = {}) {
+      const autoMode = Boolean(options.auto);
+
+      if (recognizeInFlight) {
+        rerunAfterRequest = true;
+        return;
+      }
+
+      recognizeInFlight = true;
+      if (!autoMode) {
+        recognizeBtn.disabled = true;
+        recognizeBtn.textContent = "Czytam...";
+      }
+      meta.textContent = autoMode ? "Przetwarzanie (auto)..." : "Przetwarzanie...";
+
+      try {
+        const image = canvas.toDataURL("image/png");
+        const ocrMode = document.getElementById("ocrMode").value;
+        const dictionaryMode = dictionaryModeSelect.value;
+        const response = await fetch("/api/recognize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image, mode: ocrMode, dictionary: dictionaryMode }),
+        });
+
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || "Blad podczas predykcji.");
+        }
+
+        const dictionaryLanguages = payload.dictionary_languages || getSelectedDictionaryLabel();
+        refreshDictionaryLabel(dictionaryLanguages);
+
+        if (!payload.text) {
+          modelText.textContent = "(brak liter)";
+          dictionaryText.textContent = "(brak liter)";
+          rawText.textContent = "";
+          meta.textContent = payload.message || "Nie wykryto znakow.";
+          return;
+        }
+
+        modelText.textContent = payload.text;
+        if (payload.dictionary_status === "not_found") {
+          dictionaryText.textContent = "(nie znaleziono)";
+        } else if (payload.dictionary_status === "disabled") {
+          dictionaryText.textContent = "(slownik niedostepny)";
+        } else {
+          dictionaryText.textContent = payload.corrected_text || payload.text;
+        }
+
+        if (payload.dictionary_applied && Array.isArray(payload.corrections) && payload.corrections.length > 0) {
+          const pairs = payload.corrections
+            .map((item) => `${item.from} -> ${item.to}`)
+            .join(", ");
+          rawText.textContent = `Zmiany slownikowe: ${pairs}`;
+        } else if (payload.dictionary_message) {
+          rawText.textContent = payload.dictionary_message;
+        } else {
+          rawText.textContent = "Zmiany slownikowe: brak.";
+        }
+
+        const conf = (payload.confidence * 100).toFixed(1);
+        let dictionaryState = `Slownik ${dictionaryLanguages}: bez zmian`;
+        if (!payload.dictionary_enabled) {
+          dictionaryState = `Slownik ${dictionaryLanguages}: niedostepny`;
+        } else if (payload.dictionary_applied) {
+          dictionaryState = `Slownik ${dictionaryLanguages}: korekta zastosowana`;
+        } else if (payload.dictionary_status === "found") {
+          dictionaryState = `Slownik ${dictionaryLanguages}: znaleziono tekst`;
+        } else if (payload.dictionary_status === "not_found") {
+          dictionaryState = `Slownik ${dictionaryLanguages}: nie znaleziono tekstu`;
+        }
+
+        meta.textContent = `Zrodlo: Paint | Litery: ${payload.char_count} | Srednia pewnosc: ${conf}% | ${dictionaryState}`;
+      } catch (error) {
+        modelText.textContent = "blad";
+        dictionaryText.textContent = "blad";
+        rawText.textContent = "";
+        meta.textContent = error.message;
+      } finally {
+        recognizeInFlight = false;
+        if (!autoMode) {
+          recognizeBtn.disabled = false;
+          recognizeBtn.textContent = "Rozpoznaj z Paint";
+        }
+
+        if (rerunAfterRequest) {
+          rerunAfterRequest = false;
+          scheduleAutoRecognize();
+        }
+      }
+    }
+
+    canvas.addEventListener("pointerdown", startDraw);
+    canvas.addEventListener("pointermove", draw);
+    canvas.addEventListener("pointerup", stopDraw);
+    canvas.addEventListener("pointercancel", stopDraw);
+    penBtn.addEventListener("click", () => setToolMode("draw"));
+    eraserBtn.addEventListener("click", () => setToolMode("erase"));
+    clearBtn.addEventListener("click", clearCanvas);
+    recognizeBtn.addEventListener("click", () => recognizeFromPaint({ auto: false }));
+    dictionaryModeSelect.addEventListener("change", () => {
+      refreshDictionaryLabel();
+      scheduleAutoRecognize();
+    });
+    window.addEventListener("resize", fitCanvasToContainer);
+
+    setToolMode("draw");
+    fitCanvasToContainer();
+    clearCanvas();
+  </script>
+</body>
+</html>
